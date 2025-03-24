@@ -1,1 +1,1 @@
-# vkr_project
+# vkr_kozhevnikova
