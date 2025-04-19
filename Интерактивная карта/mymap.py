@@ -36,7 +36,7 @@ entry_query = "select entry_id, entry_name, latitude, longitude, type from point
 #данные
 entry_data = get_data(entry_query)
 df_entry = pd.DataFrame(entry_data, columns=['entry_id', 'entry_name', 'latitude', 'longitude', 'type'])
-df_entry['capacity'] = [500000, 2050000, 200000, 30000, 210000, 1500000, 185000, 300000]
+df_entry['capacity'] = [500000, 2050000, 200000, 30000, 210000, 1500000, 185000, 300000, 2050000]
 df_entry = df_entry[~df_entry['entry_id'].isin([4, 5])]
 
 #точки хранения
@@ -71,38 +71,39 @@ A1 = []
 #маршруты от ТХ до ТП
 A2 = []
 
-# Переименуем столбцы, чтобы код соответствовал
+#переименуем стобцы
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
 df_storage = df_storage.rename(columns={'storage_id': 'node_id',  'storage_name': 'node_name'})
 df_consumption = df_consumption.rename(columns={'consumption_id': 'node_id', 'consumption_name': 'node_name'})
 
-# Добавляем столбцы start_node и end_node
+# столбцы start_node и end_node
 df_routes['start_node'] = df_routes['start_entry_id'].fillna(df_routes['start_storage_id'])
 df_routes['end_node'] = df_routes['end_storage_id'].fillna(df_routes['end_consumption_id'])
 
-# Создание дуг
+#дуги
 for index, row in df_routes.iterrows():
     start_node = row['start_node']
     end_node = row['end_node']
 
+    #проверка, что узлы не пустые
     if not pd.isna(start_node) and not pd.isna(end_node):
         start_node = int(start_node)
         end_node = int(end_node)
 
-        # Определяем, к какому списку добавить дугу
-        if not pd.isna(row['start_entry_id']): #Если start_entry_id определен, значит, это A1
+        #определяем к кому списку добавить узлы
+        # если start_entry_id определен то А1
+        if not pd.isna(row['start_entry_id']):
           A1.append((start_node, end_node))
-        elif not pd.isna(row['start_storage_id']): #Иначе если start_storage_id определен, значит, это A2
+          # иначе А2
+        elif not pd.isna(row['start_storage_id']):
           A2.append((start_node, end_node))
 
 # типы грузов
 K = df_cargo['cargo_type'].tolist()
 
-# общий датафрейм
-#df_nodes = pd.concat([df_entry, df_storage, df_consumption], ignore_index=True)
 
 # общий датафрейм
-frames = []
+frames = [] # список для хранения дф для объединения
 if df_entry is not None:
     frames.append(df_entry)
 if df_storage is not None:
@@ -110,29 +111,30 @@ if df_storage is not None:
 if df_consumption is not None:
     frames.append(df_consumption)
 
+# если обзий список не пуст, то объединяем все дф
 if frames:
     df_nodes = pd.concat(frames, ignore_index=True)
 else:
     df_nodes = None
 
-# Определяем тип узла по приоритету: потребление > хранение > вход
+# определяем тип узла по приоритету: потребление > хранение > вход
 if df_nodes is not None:
-    # Сначала все узлы считаем точками входа
+    # сначала все узлы считаем точками входа
     df_nodes['node_type'] = 'Точка входа'
 
-    # Если есть точка потребления, перезаписываем тип
+    # если есть точка потребления, перезаписываем тип
     if df_consumption is not None:
         consumption_nodes = df_consumption['node_id'].tolist()
         df_nodes.loc[df_nodes['node_id'].isin(consumption_nodes), 'node_type'] = 'Точка потребления'
 
-    # Если есть точка хранения, и она не точка потребления, перезаписываем тип
+    # если есть точка хранения, и она не точка потребления, перезаписываем тип
     if df_storage is not None:
         storage_nodes = df_storage['node_id'].tolist()
         df_nodes.loc[(df_nodes['node_id'].isin(storage_nodes)) & (df_nodes['node_type'] != 'Точка потребления'), 'node_type'] = 'Точка хранения'
 
 #словарь со стоимостями доставки
 costs = {}
-
+#заполняем стоимости доставки по маршрутам (start_node, end_node, k) для единиц груза
 for index, row in df_routes.iterrows():
     start_node = row['start_node']
     end_node = row['end_node']
@@ -145,8 +147,6 @@ for index, row in df_routes.iterrows():
 
         for k in K:
             costs[(start_node, end_node, k)] = transportation_cost / cargo_volume if cargo_volume > 0 else 0
-
-print("K:", K)
 
 #истоки (точки входа) и стоки (точки потребления)
 sources = {}
@@ -192,16 +192,10 @@ for index, row in df_routes.iterrows():
         route_capacities2[(start_storage_id, end_consumption_id)] = capacity
         print(f"Добавлена дуга: {(start_storage_id, end_consumption_id)} с capacity: {capacity}")
 
-print(f"Пропускная способность дуг A1:{route_capacities1}")
-print(f"Пропускная способность дуг A2:{route_capacities2}")
-
-
 #модель PuLP - максимизация общего потока
-# максимизация общего потока
 prob_max_flow = LpProblem("MaxFlow", LpMaximize)
 
 #переменные объема потока
-
 f1_mf = LpVariable.dicts("f1_mf", [(i, j, k) for (i, j) in A1 for k in K], lowBound=0, cat='Continuous')
 f2_mf = LpVariable.dicts("f2_mf", [(i, j, k) for (i, j) in A2 for k in K], lowBound=0, cat='Continuous')
 
@@ -348,8 +342,59 @@ print("Общие затраты:", value(prob_min_cost.objective))
 
 
 #ГРАФ 
+#использование маршрутов 
+def calculate_route_usage(A1, A2, K, f1_mc, f2_mc):
+    route_usage = {}
+    for (i, j) in A1:
+        route_usage[(i, j)] = 0
+        for k in K:
+            # добавляем переменную затрат
+            if (i, j, k) in f1_mc and f1_mc[(i, j, k)].varValue is not None:
+                route_usage[(i, j)] += f1_mc[(i, j, k)].varValue
+
+    for (i, j) in A2:
+        route_usage[(i, j)] = 0
+        for k in K:
+            # добавляем переменную затрат
+            if (i, j, k) in f2_mc and f2_mc[(i, j, k)].varValue is not None:
+                route_usage[(i, j)] += f2_mc[(i, j, k)].varValue
+    return route_usage
+
+# ПС узла
+def calculate_node_capacities(df_nodes):
+    node_capacities = {}
+    for index, row in df_nodes.iterrows():
+        node_id = row['node_id']
+        capacity = row['capacity']
+        node_capacities[node_id] = capacity
+    return node_capacities
+
+#использование злов
+def calculate_node_usage(df_nodes, A1, A2, K, f1_mc, f2_mc):
+  node_usage = {node: 0 for node in df_nodes['node_id']} 
+  for node in df_nodes['node_id']:
+      for k in K:
+          # входящий поток в узел
+          inflow = sum(
+              [f1_mc[(i, node, k)].varValue for (i, node) in A1 if (i, node, k) in f1_mc and f1_mc[(i, node, k)].varValue is not None] +
+              [f2_mc[(i, node, k)].varValue for (i, node) in A2 if (i, node, k) in f2_mc and f2_mc[(i, node, k)].varValue is not None]
+          )
+
+          # исходящий поток из узла
+          outflow = sum(
+              [f1_mc[(node, j, k)].varValue for (node, j) in A1 if (node, j, k) in f1_mc and f1_mc[(node, j, k)].varValue is not None] +
+              [f2_mc[(node, j, k)].varValue for (node, j) in A2 if (node, j, k) in f2_mc and f2_mc[(node, j, k)].varValue is not None]
+          )
+
+          node_usage[node] += inflow + outflow  # суммируем входящий и исходящий поток
+  return node_usage
+
+route_usage = calculate_route_usage(A1, A2, K, f1_mc, f2_mc)
+node_capacities = calculate_node_capacities(df_nodes)
+node_usage = calculate_node_usage(df_nodes, A1, A2, K, f1_mc, f2_mc)
+
+#значения потока
 def extract_graph_data_max_flow(f1_mf, f2_mf, A1, A2, K):
-    """Извлекает значения потока и формирует словарь для визуализации."""
     flow_values = {}
     for (i, j) in A1:
         for k in K:
@@ -362,103 +407,154 @@ def extract_graph_data_max_flow(f1_mf, f2_mf, A1, A2, K):
     return flow_values
 
 def build_flow_network(nodes, edges, route_capacities1, route_capacities2, df_nodes, flow_values):
-    """Строит граф потока с учетом пропускных способностей и потоков."""
     graph = nx.DiGraph()
     graph.add_nodes_from(nodes)
-
-    # Добавляем все возможные ребра из df_routes
     for u, v in edges:
-        # Определяем пропускную способность для ребра
-        capacity = 0
-        if (u, v) in route_capacities1:
-            capacity = route_capacities1[(u, v)]
-        elif (u, v) in route_capacities2:
-            capacity = route_capacities2[(u, v)]
-        
-        # Вычисляем общий поток для ребра
+        capacity = route_capacities1.get((u, v), 0) or route_capacities2.get((u, v), 0)
         total_flow = 0
         for k in K:
-            if (u, v, k) in flow_values:
-                total_flow += flow_values[(u, v, k)]
-
-        # Добавляем ребро и сохраняем информацию о потоке и пропускной способности
+             if (u, v, k) in flow_values:
+                 total_flow += flow_values[(u, v, k)]
         graph.add_edge(u, v, capacity=capacity, flow=total_flow)
 
-    # Определяем цвет узлов на основе df_nodes['node_type']
-    if df_nodes is not None:
-        node_type_dict = pd.Series(df_nodes['node_type'].values, index=df_nodes['node_id']).to_dict()
-    else:
-        node_type_dict = {}
-
-    for node in nodes:
-        if node in node_type_dict:
-            node_type = node_type_dict[node]
-            if node_type == 'Точка входа':
-                graph.nodes[node]['node_color'] = 'green'
-            elif node_type == 'Точка хранения':
-                graph.nodes[node]['node_color'] = 'orange'  # Можете выбрать другой цвет
-            elif node_type == 'Точка потребления':
-                graph.nodes[node]['node_color'] = 'red'
-            else:
-                graph.nodes[node]['node_color'] = 'blue'  # Цвет по умолчанию
+    for node in graph.nodes():
+        node_type = df_nodes.loc[df_nodes['node_id'] == node, 'node_type'].iloc[0]
+        if node_type == 'Точка потребления':
+            node_color = 'red'
+        elif node_type == 'Точка хранения':
+            node_color = 'orange'
         else:
-            graph.nodes[node]['node_color'] = 'blue'  # Цвет по умолчанию, если нет в df_nodes
-
+            node_color = 'green'
+        graph.nodes[node]['node_color'] = node_color 
     return graph
 
-def draw_flow_network(graph):
-    """Отрисовывает граф с пропускными способностями и потоками."""
-    plt.figure(figsize=(12, 8))
-    pos = nx.spring_layout(graph, seed=42)  # для воспроизводимости
 
-    # Цвета узлов
+def draw_flow_network(graph, df_nodes, route_usage, node_capacities, node_usage):
+    plt.figure(figsize=(12, 8))
+    pos = nx.spring_layout(graph)
+
+    # Определяем расположение узлов
+    pos = {}
+    x_entry = 0.1
+    x_storage = 0.5  
+    x_consumption = 0.9 
+    y_spacing = 0.1 
+    y_entry = 0
+    y_storage = 0
+    y_consumption = 0.1
+
+    for node in graph.nodes():
+        node_info = df_nodes[df_nodes['node_id'] == node].iloc[0]
+        node_type = node_info['node_type']
+
+        if node_type == 'Точка входа':
+            pos[node] = (x_entry, y_entry)
+            y_entry += y_spacing
+        elif node_type == 'Точка хранения':
+            pos[node] = (x_storage, y_storage)
+            y_storage += y_spacing
+        elif node_type == 'Точка потребления':
+            pos[node] = (x_consumption, y_consumption)
+            y_consumption += y_spacing
+
+    # цвета узлов
     node_colors = [graph.nodes[node]['node_color'] for node in graph.nodes()]
     nx.draw_networkx_nodes(graph, pos, node_color=node_colors, node_size=500)
 
-    # Разделяем ребра на две группы: с потоком и без потока
-    edges_with_flow = [(u, v) for u, v in graph.edges() if graph[u][v]['flow'] > 0]
-    edges_without_flow = [(u, v) for u, v in graph.edges() if graph[u][v]['flow'] == 0]
+    # смещаем подписи узлов
+    pos_labels = {node: (x + 0.01, y + 0.01) for node, (x, y) in pos.items()}
 
-    # Рисуем ребра без потока серым цветом
-    nx.draw_networkx_edges(graph, pos, edgelist=edges_without_flow, width=1, edge_color='gray', alpha=0.5)
+    # рисуем номера узлов внутри кружочков
+    nx.draw_networkx_labels(graph, pos,
+                           labels={node: node for node in graph.nodes()},  # Отображаем только номер узла
+                           font_size=12, font_family='sans-serif', font_color='black')  # Черный цвет
 
-    # Рисуем ребра с потоком синим цветом
-    edges_width = [graph[u][v]['flow'] / 5000 for u, v in edges_with_flow]  # для удобочитаемости
-    nx.draw_networkx_edges(graph, pos, edgelist=edges_with_flow, width=edges_width, edge_color='blue', alpha=0.7)
+    # подписи узлов (с неиспользованной пропускной способностью)
+    node_labels = {}
+    for node in graph.nodes():
+        node_info = df_nodes[df_nodes['node_id'] == node].iloc[0]
+        capacity = node_capacities.get(node, 0)
+        usage = node_usage.get(node, 0)
+        unused = capacity - usage
+        node_labels[node] = f"{node_info['node_name']}"  # Имя 
 
-    # Подписи узлов
-    nx.draw_networkx_labels(graph, pos, font_size=12, font_family='sans-serif')
+    nx.draw_networkx_labels(graph, pos=pos_labels, labels=node_labels, font_size=8, font_family='sans-serif')
 
-    # Подписи ребер (пропускная способность и поток)
-    edge_labels = {(u, v): f"Cap:{graph[u][v]['capacity']}\nFlow:{graph[u][v]['flow']:.2f}"
-                   for u, v in graph.edges()}
-    nx.draw_networkx_edge_labels(graph, pos, edge_labels=edge_labels, font_size=8, font_family='sans-serif')
+    # определение минимальной и максимальной оставшейся пропускной способности
+    min_unused_capacity = float('inf')
+    max_unused_capacity = 0
+    for u, v, data in graph.edges(data=True):
+        capacity = data.get('capacity', 0)
+        flow = data.get('flow', 0)
+        unused_capacity = capacity - flow
+        min_unused_capacity = min(min_unused_capacity, unused_capacity)
+        max_unused_capacity = max(max_unused_capacity, unused_capacity)
+
+    print(f"min_unused_capacity: {min_unused_capacity}, max_unused_capacity: {max_unused_capacity}")
+
+    # Отрисовка ребер
+    edge_colors = []
+    edge_widths = []
+    for u, v, data in graph.edges(data=True):
+        capacity = data.get('capacity', 0)
+        flow = data.get('flow', 0)
+        unused_capacity = capacity - flow
+
+        if unused_capacity > 0:
+            # нормализация оставшейся пропускной способности
+            normalized_unused_capacity = (unused_capacity - min_unused_capacity) / (max_unused_capacity - min_unused_capacity) \
+                if max_unused_capacity > min_unused_capacity else 0
+            normalized_unused_capacity = max(0, min(1, normalized_unused_capacity))
+
+            color = plt.cm.BuGn(normalized_unused_capacity)
+            edge_colors.append(color)
+            edge_widths.append(unused_capacity / 100000)
+        else:
+            # серый цвет, если пропускная способность равна 0
+            edge_colors.append('gray')
+            edge_widths.append(0.5)
+
+    nx.draw_networkx_edges(graph, pos, edge_color=edge_colors, width=edge_widths, alpha=0.7)
+
+    # подписи ребер
+    edge_labels = {}
+    for u, v, data in graph.edges(data=True):
+        capacity = data.get('capacity', 0)
+        flow = data.get('flow', 0)
+        unused_capacity = capacity - flow
+        edge_labels[(u, v)] = (
+            #f"Пропускная способность: {capacity}\n"
+            #f"Использовано: {flow:.2f}\n"
+            f"Осталось: {unused_capacity:.2f}"
+        )
+
+    nx.draw_networkx_edge_labels(
+        graph,
+        pos=pos,
+        edge_labels=edge_labels,
+        font_size=7,
+        font_family='sans-serif'
+    )
 
     plt.axis('off')
     plt.tight_layout()
+    plt.savefig("transport_network.png")
     plt.show()
 
-# Решаем задачу max flow
-prob_max_flow.solve()
-optimal_flow = value(prob_max_flow.objective) # Получаем оптимальный поток
-print("Оптимальный поток:", optimal_flow)
-print(df_nodes)
-print('f1_mc:', f1_mc)
-print('f2_mc:', f2_mc)
-# Извлекаем объемы потоков из решения max flow
+# извлекаем объемы потоков из решения max flow
 flow_values = extract_graph_data_max_flow(f1_mf, f2_mf, A1, A2, K)
 
-# Список всех узлов
+# список всех узлов
 nodes = set()
 for (i, j) in A1 + A2:
     nodes.add(i)
     nodes.add(j)
 
-# Создаем граф
+# создаем граф
 flow_network = build_flow_network(nodes, A1 + A2, route_capacities1, route_capacities2, df_nodes, flow_values)
 
-# Рисуем граф
-draw_flow_network(flow_network)
+# рисуем граф
+draw_flow_network(flow_network, df_nodes, route_usage, node_capacities, node_usage)  # передача df_nodes
 
 
 #ИНТЕРАКТИВНАЯ КАРТА
@@ -595,11 +691,11 @@ def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
     #угол поворота дуги
     angle = np.arctan2(end_lat - start_lat, end_lon - start_lon)
 
-    # Создание Point в средней точке и смещение его по нормали к линии
+    # создание Point в средней точке и смещение его по нормали к линии
     arc_point = Point(mid_lon, mid_lat)
     arc_point = Point(arc_point.x - np.sin(angle) * height * distance, arc_point.y + np.cos(angle) * height * distance)
 
-    # Создание дуги с использованием интерполяции
+    # создание дуги с использованием интерполяции
     num_points = 50  # Количество точек для отрисовки дуги
     arc = []
     for i in range(num_points + 1):
@@ -607,7 +703,7 @@ def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
         point = line.interpolate(alpha, normalized=True)
         x = point.x
         y = point.y
-        # Смещение точки по параболе
+        # смещение точки по параболе
         z = 4 * height * distance * alpha * (1 - alpha)
         x = x + (arc_point.x - mid_lon) * z
         y = y + (arc_point.y - mid_lat) * z
