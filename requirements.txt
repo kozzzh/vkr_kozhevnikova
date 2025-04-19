@@ -63,11 +63,14 @@ urllib3==2.3.0
 Werkzeug==3.0.6
 xyzservices==2025.1.0
 zipp==3.21.0
-streamlit
+streamlit==1.32.2
 pandas
-psycopg2
-matplotlib
+numpy
+psycopg2-binary
 pulp
+matplotlib
+plotly
 networkx
 folium
+shapely
 
