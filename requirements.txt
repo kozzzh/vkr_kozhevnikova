@@ -71,4 +71,4 @@ plotly
 networkx
 folium
 shapely
-
+urllib3
