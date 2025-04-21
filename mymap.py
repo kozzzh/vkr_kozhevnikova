@@ -45,6 +45,7 @@ def get_data(query):
         if conn is not None:
             conn.close()
 
+
 # точки входа
 # определение запроса
 entry_query = "select entry_id, entry_name, latitude, longitude, type from points_of_entry"
@@ -612,50 +613,28 @@ show_routes = st.checkbox("Показать маршруты", value=True)
 #карта
 m = folium.Map(location=[center_latitude, center_longitude], zoom_start=7)
 
-if show_entry_points:
-    entry_points = df_nodes['node_type'] == 'Точка входа'
-    for index, row in df_nodes[entry_points].iterrows():
-        latitude = row['latitude']
-        longitude = row['longitude']
+#маркеры ТВ (df_nodes)
+for index, row in df_nodes.iterrows():
+    latitude = row['latitude']
+    longitude = row['longitude']
+    node_type = row['node_type']
+    node_name = row['node_name']
 
-        if pd.notna(latitude) and pd.notna(longitude): #Проверяем, что значения не NaN
-            folium.Marker(
-                location=[latitude, longitude],
-                popup=f"<b>{row['node_name']} (Точка входа)</b><br>Долгота:{latitude}<br>Широта:{longitude}",
-                icon=folium.Icon(color="green", icon="home"),
-            ).add_to(m)
+    if pd.notna(latitude) and pd.notna(longitude):
+        if node_type == 'Точка входа' and show_entry_points:
+            icon_color = "green"
+        elif node_type == 'Точка хранения' and show_storage_points:
+            icon_color = "orange"
+        elif node_type == 'Точка потребления' and show_consumption_points:
+            icon_color = "red"
         else:
-            print(f"Пропущена точка входа {row['node_name']} (ID: {row['node_id']}) из-за отсутствия координат.")
+            continue # Пропускаем маркер, если тип точки не соответствует условию
 
-if show_storage_points:
-    storage_points = df_nodes['node_type'] == 'Точка хранения'
-    for index, row in df_nodes[storage_points].iterrows():
-        latitude = row['latitude']
-        longitude = row['longitude']
-
-        if pd.notna(latitude) and pd.notna(longitude): #Проверяем, что значения не NaN
-            folium.Marker(
-                location=[latitude, longitude],
-                popup=f"<b>{row['node_name']} (Точка хранения)</b><br>Долгота:{latitude}<br>Широта:{longitude}",
-                icon=folium.Icon(color="orange", icon="home"),
-            ).add_to(m)
-        else:
-            print(f"Пропущена точка входа {row['node_name']} (ID: {row['node_id']}) из-за отсутствия координат.")
-
-if show_consumption_points:
-    consumption_points = df_nodes['node_type'] == 'Точка потребления'
-    for index, row in df_nodes[consumption_points].iterrows():
-        latitude = row['latitude']
-        longitude = row['longitude']
-
-        if pd.notna(latitude) and pd.notna(longitude): #Проверяем, что значения не NaN
-            folium.Marker(
-                location=[latitude, longitude],
-                popup=f"<b>{row['node_name']} (Точка потребления)</b><br>Долгота:{latitude}<br>Широта:{longitude}",
-                icon=folium.Icon(color="red", icon="home"),
-            ).add_to(m)
-        else:
-            print(f"Пропущена точка входа {row['node_name']} (ID: {row['node_id']}) из-за отсутствия координат.")
+        folium.Marker(
+            location=[latitude, longitude],
+            popup=f"<b>{node_name} ({node_type})</b><br>Долгота:{latitude}<br>Широта:{longitude}",
+            icon=folium.Icon(color=icon_color, icon="home"),
+        ).add_to(m)
 
 colors = {"Точка входа": "rgb(50,205,50)", "Точка хранения": "orange", "Точка потребления": "	rgb(220,20,60)"}
 
