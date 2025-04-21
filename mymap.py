@@ -14,21 +14,34 @@ from shapely.geometry import Point, LineString
 
 #подключение к постгре
 def get_data(query):
-    #подключение
     conn = None
-    #установление подключения
-    conn = psycopg2.connect(host="localhost", database="postgres", user="postgres", password="1602", port="5432")
-    #курсор для хранения последнего оператора скл
-    cur = conn.cursor()
-    #выполнение подключения
-    cur.execute(query)
-    #получаем все строки
-    data = cur.fetchall()
-    cur.close()
-    return data
-    #если соединение установлено (не none), то завершаем подключение
-    if conn is not None:
-        conn.close()
+    try:
+        # Получите DATABASE_URL из переменных окружения
+        database_url = os.environ.get("DATABASE_URL")
+
+        # Разберите URL подключения
+        urllib.parse.uses_netloc.append("postgres")
+        url = urllib.parse.urlparse(database_url)
+
+        # Подключитесь к базе данных
+        conn = psycopg2.connect(
+            database=url.path[1:],  # Уберите начальный символ "/"
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port
+        )
+        cur = conn.cursor()
+        cur.execute(query)
+        data = cur.fetchall()
+        cur.close()
+        return data
+    except psycopg2.Error as e:
+        print(f"Ошибка при подключении к базе данных: {e}")
+        return None
+    finally:
+        if conn is not None:
+            conn.close()
 
 # точки входа
 # определение запроса
@@ -111,7 +124,7 @@ if df_storage is not None:
 if df_consumption is not None:
     frames.append(df_consumption)
 
-# если обзий список не пуст, то объединяем все дф
+# если общий список не пуст, то объединяем все дф
 if frames:
     df_nodes = pd.concat(frames, ignore_index=True)
 else:
