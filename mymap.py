@@ -15,31 +15,23 @@ from streamlit_folium import folium_static
 from shapely.geometry import Point, LineString
 
 #подключение к постгре
+@st.cache_data
 def get_data(query):
     conn = None
     try:
         # Получите DATABASE_URL из переменных окружения
         database_url = os.environ.get("DATABASE_URL")
 
-        # Разберите URL подключения
-        urllib.parse.uses_netloc.append("postgres")
-        url = urllib.parse.urlparse(database_url)
-
         # Подключитесь к базе данных
-        conn = psycopg2.connect(
-            database=url.path[1:],  # Уберите начальный символ "/"
-            user=url.username,
-            password=url.password,
-            host=url.hostname,
-            port=url.port
-        )
+        conn = psycopg2.connect(database_url, sslmode='require')  # Прямое подключение
+
         cur = conn.cursor()
         cur.execute(query)
         data = cur.fetchall()
         cur.close()
         return data
     except psycopg2.Error as e:
-        print(f"Ошибка при подключении к базе данных: {e}")
+        st.error(f"Ошибка при подключении к базе данных: {e}")  # Используйте st.error для отображения ошибок в Streamlit
         return None
     finally:
         if conn is not None:
@@ -805,11 +797,11 @@ if show_routes:
                 tooltip=tooltip_text).add_to(m)
 
 df_routes = df_routes.rename(columns={'route_type_x': 'route_type'})
-st.write(df_routes)
-st.write(df_entry)
-st.write(df_storage)
-st.write(df_consumption)
-st.write(df_nodes)
+st.write("df_routes", df_routes)
+st.write("df_entry", df_entry)
+st.write("df_storage", df_storage)
+st.write("df_consumption", df_consumption)
+st.write("df_nodes", df_nodes)
 
 # Отображение карты в Streamlit
 #folium_static(m, width=1500, height=800)
