@@ -27,7 +27,7 @@ def get_data(query):
         conn = psycopg2.connect(database_url, sslmode='require')  # Прямое подключение
 
         cur = conn.cursor()
-        cur.execute(query)
+        cur.executsourcee(query)
         data = cur.fetchall()
         cur.close()
         return data
@@ -37,7 +37,8 @@ def get_data(query):
     finally:
         if conn is not None:
             conn.close()
-                        
+
+st.write(f"psycopg2 version: {psycopg2.__version__}")     
 # точки входа
 # определение запроса
 entry_query = "select entry_id, entry_name, latitude, longitude, type from points_of_entry"
