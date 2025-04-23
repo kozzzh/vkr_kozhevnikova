@@ -23,19 +23,8 @@ def get_data(query):
         # Получите DATABASE_URL из переменных окружения
         database_url = os.environ.get("DATABASE_URL")
 
-        # Разберите URL подключения
-        urllib.parse.uses_netloc.append("postgres")
-        url = urllib.parse.urlparse(database_url)
-
-        # Подключитесь к базе данных, передавая параметры по отдельности
-        conn = psycopg2.connect(
-            database=url.path[1:],  # Уберите начальный символ "/"
-            user=url.username,
-            password=url.password,
-            host=url.hostname,
-            port=url.port,
-            sslmode='require'
-        )
+        # Подключитесь к базе данных
+        conn = psycopg2.connect(database_url, sslmode='require')  # Прямое подключение
 
         cur = conn.cursor()
         cur.execute(query)
@@ -43,12 +32,12 @@ def get_data(query):
         cur.close()
         return data
     except psycopg2.Error as e:
-        st.error(f"Ошибка при подключении к базе данных: {e}")
+        st.error(f"Ошибка при подключении к базе данных: {e}")  # Используйте st.error для отображения ошибок в Streamlit
         return None
     finally:
         if conn is not None:
             conn.close()
-            
+                        
 # точки входа
 # определение запроса
 entry_query = "select entry_id, entry_name, latitude, longitude, type from points_of_entry"
