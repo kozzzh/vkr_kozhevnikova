@@ -39,7 +39,6 @@ def get_data(query):
             cur.close()
             conn.close()
 
-st.write(df_routes.columns)
 st.write(f"psycopg2 version: {psycopg2.__version__}") 
    
 # точки входа
@@ -90,7 +89,7 @@ current_date = st.date_input("Выберите дату", value=datetime.today()
 
 # Получаем данные о маршрутах на выбранную дату
 df_routes = get_transport_routes(current_date)
-
+st.write(df_routes.columns)
 # Переименовываем столбцы для удобства
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
 df_storage = df_storage.rename(columns={'storage_id': 'node_id', 'storage_name': 'node_name'})
