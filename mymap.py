@@ -4,6 +4,7 @@ import psycopg2
 import urllib.parse
 import os
 import pulp
+from datetime import datetime, date
 from pulp import *
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -64,88 +65,82 @@ cargo_data = get_data(cargo_query)
 df_cargo = pd.DataFrame(cargo_data, columns=['cargo_id', 'cargo_type', 'unit'])
 
 #транспортные пути
-routes_query = "select route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id, route_type, cargo_volume, capacity, transportation_cost, allowed_transport_vehicles from transport_routes"
-routes_data = get_data(routes_query)
-df_routes = pd.DataFrame(routes_data, columns=['route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id', 'route_type', 'cargo_volume', 'capacity', 'transportation_cost', 'allowed_transport_vehicles'])
+# Функция для получения данных о маршрутах с учетом даты
+def get_transport_routes(current_date: date):
+    query = f"""
+        SELECT route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id,
+               route_type, cargo_volume, capacity, transportation_cost, allowed_transport_vehicles,
+               start_date, end_date
+        FROM transport_routes
+        WHERE start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')
+    """
+    transport_data = get_data(query)
+    df_transport = pd.DataFrame(transport_data, columns=[
+        'route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id',
+        'route_type', 'cargo_volume', 'capacity', 'transportation_cost', 'allowed_transport_vehicles',
+        'start_date', 'end_date'
+    ])
+    return df_transport
 
-#  Переименуем столбцы, чтобы код соответствовал
+# Получаем текущую дату из Streamlit (можно использовать слайдер или выбор даты)
+current_date = st.date_input("Выберите дату", value=datetime.today())
+
+# Получаем данные о маршрутах на выбранную дату
+df_transport = get_transport_routes(current_date)
+
+# Переименовываем столбцы для удобства
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
-df_storage = df_storage.rename(columns={'storage_id': 'node_id',  'storage_name': 'node_name'})
+df_storage = df_storage.rename(columns={'storage_id': 'node_id', 'storage_name': 'node_name'})
 df_consumption = df_consumption.rename(columns={'consumption_id': 'node_id', 'consumption_name': 'node_name'})
 
-#словари для разных типов маршрутов
-#прямые маршруты от ТВ до ТХ
-A1 = []
-#маршруты от ТХ до ТП
-A2 = []
+# Объединяем данные о узлах
+frames = [df_entry, df_storage, df_consumption]
+df_nodes = pd.concat(frames, ignore_index=True)
 
-#переименуем стобцы
-df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
-df_storage = df_storage.rename(columns={'storage_id': 'node_id',  'storage_name': 'node_name'})
-df_consumption = df_consumption.rename(columns={'consumption_id': 'node_id', 'consumption_name': 'node_name'})
+# Создаем списки для дуг (с учетом выбранной даты и df_transport)
+A1 = []  # Прямые маршруты от ТВ до ТХ
+A2 = []  # Маршруты от ТХ до ТП
 
-# столбцы start_node и end_node
-df_routes['start_node'] = df_routes['start_entry_id'].fillna(df_routes['start_storage_id'])
-df_routes['end_node'] = df_routes['end_storage_id'].fillna(df_routes['end_consumption_id'])
+# Проверяем, что df_transport не пуст
+if not df_transport.empty:
+    for index, row in df_transport.iterrows():
+        start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
+        end_node = row['end_consumption_id'] if pd.notna(row['end_consumption_id']) else row['end_storage_id']
 
-#дуги
-for index, row in df_routes.iterrows():
-    start_node = row['start_node']
-    end_node = row['end_node']
+        # Проверка на None (или np.nan) before converting to int
+        if not pd.isna(start_node) and not pd.isna(end_node):
+            start_node = int(start_node)
+            end_node = int(end_node)
 
-    #проверка, что узлы не пустые
-    if not pd.isna(start_node) and not pd.isna(end_node):
-        start_node = int(start_node)
-        end_node = int(end_node)
+            if not pd.isna(row['start_entry_id']):
+                A1.append((start_node, end_node))
+            else:
+                A2.append((start_node, end_node))
 
-        #определяем к кому списку добавить узлы
-        # если start_entry_id определен то А1
-        if not pd.isna(row['start_entry_id']):
-          A1.append((start_node, end_node))
-          # иначе А2
-        elif not pd.isna(row['start_storage_id']):
-          A2.append((start_node, end_node))
-
-# типы грузов
+# Типы грузов
 K = df_cargo['cargo_type'].tolist()
 
-
-# общий датафрейм
-frames = [] # список для хранения дф для объединения
-if df_entry is not None:
-    frames.append(df_entry)
-if df_storage is not None:
-    frames.append(df_storage)
-if df_consumption is not None:
-    frames.append(df_consumption)
-
-# если общий список не пуст, то объединяем все дф
-if frames:
-    df_nodes = pd.concat(frames, ignore_index=True)
-else:
-    df_nodes = None
-
-# определяем тип узла по приоритету: потребление > хранение > вход
+# Определяем тип узла по приоритету: потребление > хранение > вход
 if df_nodes is not None:
-    # сначала все узлы считаем точками входа
+    # Сначала все узлы считаем точками входа
     df_nodes['node_type'] = 'Точка входа'
 
-    # если есть точка потребления, перезаписываем тип
+    # Если есть точка потребления, перезаписываем тип
     if df_consumption is not None:
         consumption_nodes = df_consumption['node_id'].tolist()
         df_nodes.loc[df_nodes['node_id'].isin(consumption_nodes), 'node_type'] = 'Точка потребления'
 
-    # если есть точка хранения, и она не точка потребления, перезаписываем тип
+    # Если есть точка хранения, и она не точка потребления, перезаписываем тип
     if df_storage is not None:
         storage_nodes = df_storage['node_id'].tolist()
         df_nodes.loc[(df_nodes['node_id'].isin(storage_nodes)) & (df_nodes['node_type'] != 'Точка потребления'), 'node_type'] = 'Точка хранения'
 
-#словарь со стоимостями доставки
+# словарь со стоимостями доставки
 costs = {}
-#заполняем стоимости доставки по маршрутам (start_node, end_node, k) для единиц груза
-for index, row in df_routes.iterrows():
-    start_node = row['start_node']
-    end_node = row['end_node']
+# Use df_transport here
+for index, row in df_transport.iterrows():
+    start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
+    end_node = row['end_consumption_id'] if pd.notna(row['end_consumption_id']) else row['end_storage_id']
     transportation_cost = row['transportation_cost']
     cargo_volume = row['cargo_volume']
 
@@ -171,183 +166,212 @@ for index, row in df_nodes.iterrows():
     capacity = row['capacity']
     node_capacities[node_id] = capacity
 
-print(f"Пропускная способность вершин:{node_capacities}")
-
 #пропусные способности маршрутов от точки входа
 route_capacities1 = {}
-for index, row in df_routes.iterrows():
+# Use df_transport here
+for index, row in df_transport.iterrows():
     start_entry_id = row['start_entry_id']
     end_storage_id = row['end_storage_id']
     end_consumption_id = row['end_consumption_id']
     capacity = row['capacity']
 
-    #добавляем маршрут, если он существует (от точки входа до точки хранения)
+    # добавляем маршрут, если он существует (от точки входа до точки хранения)
     if not pd.isna(start_entry_id) and not pd.isna(end_storage_id):
         route_capacities1[(start_entry_id, end_storage_id)] = capacity
 
-    #добавляем маршрут, если он существует (от точки входа до точки потребления)  
-    elif not pd.isna(start_entry_id) and not pd.isna(end_consumption_id): 
+    # добавляем маршрут, если он существует (от точки входа до точки потребления)
+    elif not pd.isna(start_entry_id) and not pd.isna(end_consumption_id):
         route_capacities1[(start_entry_id, end_consumption_id)] = capacity
 
 #маршруты от точки хранения
 route_capacities2 = {}
-for index, row in df_routes.iterrows():
+# Use df_transport here
+for index, row in df_transport.iterrows():
     start_storage_id = row['start_storage_id']
     end_consumption_id = row['end_consumption_id']
     capacity = row['capacity']
 
     if not pd.isna(start_storage_id) and not pd.isna(end_consumption_id):
         route_capacities2[(start_storage_id, end_consumption_id)] = capacity
-        print(f"Добавлена дуга: {(start_storage_id, end_consumption_id)} с capacity: {capacity}")
 
-#модель PuLP - максимизация общего потока
-prob_max_flow = LpProblem("MaxFlow", LpMaximize)
-
-#переменные объема потока
-f1_mf = LpVariable.dicts("f1_mf", [(i, j, k) for (i, j) in A1 for k in K], lowBound=0, cat='Continuous')
-f2_mf = LpVariable.dicts("f2_mf", [(i, j, k) for (i, j) in A2 for k in K], lowBound=0, cat='Continuous')
-
-# ЦФ (максимизация общего обхема потока)
-prob_max_flow += lpSum([f1_mf[(i, j, k)] for (i, j) in A1 for k in K]) + lpSum([f2_mf[(i, j, k)] for (i, j) in A2 for k in K]), "Total Flow"
-
-#ограничения
-constraint_counter = 0
-#проверка, что в маршрутах от точких хранения конечная точка является ТХ или ТП
-for (i, j) in A1:
-    is_storage = j in df_storage['node_id'].values
-    is_consumption = j in df_consumption['node_id'].values
-
-    #если конечная точка - ТХ, то пишем ограничение о том, что суммарный поток по дуги не выше пропускной сопособности жтой дуги
-    if is_storage:
-        #<= route_capacities1.get((i, j) - возвращаем ПС дуги, если она есть, иначе - 0
-        prob_max_flow += lpSum([f1_mf[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_ES_{i}_{j}_{constraint_counter}"
-        constraint_counter += 1 #увеличиваем счетчик
-    #если конечная точка - ТП, то пишем ограничение о том, что суммарный поток по дуги не выше пропускной сопособности жтой дуги
-    elif is_consumption:
-        prob_max_flow += lpSum([f1_mf[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_EC_{i}_{j}_{constraint_counter}"
-        constraint_counter += 1 #увеличиваем счетчик
-
-#также для маршрутов от тх
-for (i, j) in A2:
-    prob_max_flow += lpSum([f2_mf[(i, j, k)] for k in K]) <= route_capacities2.get((i, j), 0), f"C_A2_{i}_{j}_{constraint_counter}"
-    constraint_counter += 1 #увеличиваем счетчик
-
-#все уникальный узлы в сети из А1 и А2
+# Все уникальные узлы в сети из А1 и А2
 nodes = set()
 for (i, j) in A1 + A2:
     nodes.add(i)
     nodes.add(j)
 
-#если узел не находится в  sources или sinks, то каждый входящий в него потока равен исходящему
+# ------------------------------------------------------------------------------
+# Модель максимизации потока
+# ------------------------------------------------------------------------------
+
+prob_max_flow = LpProblem("MaxFlow", LpMaximize)
+
+# Переменные объема потока
+f1_mf = LpVariable.dicts("f1_mf", [(i, j, k) for (i, j) in A1 for k in K], lowBound=0, cat='Continuous')
+f2_mf = LpVariable.dicts("f2_mf", [(i, j, k) for (i, j) in A2 for k in K], lowBound=0, cat='Continuous')
+
+# Целевая функция
+prob_max_flow += lpSum([f1_mf[(i, j, k)] for (i, j) in A1 for k in K]) + lpSum([f2_mf[(i, j, k)] for (i, j) in A2 for k in K]), "Total Flow"
+
+# ------------------------------------------------------------------------------
+# Ограничения модели максимизации потока
+# ------------------------------------------------------------------------------
+
+# Ограничение 1: Величина потока по дуге не превосходит пропускную способность этой дуги
+
+constraint_counter1 = 0 #счетчик ограничений
+# Для маршрутов от ТВ
+for (i, j) in A1:
+    is_storage = j in df_storage['node_id'].values
+    is_consumption = j in df_consumption['node_id'].values
+
+    #если конечная точка - ТХ, то пишем ограничение о том, что суммарный поток по дуге не выше пропускной сопособности этой дуги
+    if is_storage:
+        #<= route_capacities1.get((i, j) - возвращаем ПС дуги, если она есть, иначе - 0
+        prob_max_flow += lpSum([f1_mf[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_ES_{i}_{j}_{constraint_counter1}"
+        constraint_counter1 += 1 #увеличиваем счетчик
+    #если конечная точка - ТП, то пишем ограничение о том, что суммарный поток по дуге не выше пропускной сопособности этой дуги
+    elif is_consumption:
+        prob_max_flow += lpSum([f1_mf[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_EC_{i}_{j}_{constraint_counter1}"
+        constraint_counter1 += 1 #увеличиваем счетчик
+
+# Также для маршрутов от тх
+for (i, j) in A2:
+    prob_max_flow += lpSum([f2_mf[(i, j, k)] for k in K]) <= route_capacities2.get((i, j), 0), f"C_A2_{i}_{j}_{constraint_counter1}"
+    constraint_counter1 += 1 #увеличиваем счетчик
+
+# Ограничение 2: Поток, входящий в точку хранения (не в sources или sinks) больше или равен исходящему из этой точки потоку
+
+constraint_counter2 = 0 #счетчик ограничений
 for node in nodes:
     if node not in [item for sublist in sources.values() for item in sublist] and node not in [item for sublist in sinks.values() for item in sublist]:
         for k in K:
-            prob_max_flow += lpSum([f1_mf[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mf]) + lpSum([f2_mf[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mf]) == \
-                            lpSum([f1_mf[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mf]) + lpSum([f2_mf[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mf]), f"Flow_Balance_{node}_{k}"
+            prob_max_flow += lpSum([f1_mf[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mf]) + lpSum([f2_mf[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mf]) >= \
+                            lpSum([f1_mf[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mf]) + lpSum([f2_mf[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mf]), f"Flow_Balance_{node}_{k}_{constraint_counter2}"
+            constraint_counter2 += 1
 
-# ограничения пропускной способности узлов
-constraint_counter = 0 #счетчик ограничений для уникальных имен
-#суммарный потока каждого типа груза, проходящий через узел равно выходящему из узла
+# Ограничение 3: Суммарный поток, проходящий через узел, не превосходит пропускную способность этого узла
+
+constraint_counter3 = 0 #счетчик ограничений
 for node in df_nodes['node_id']:
     for k in K:
         if node in node_capacities:
             prob_max_flow += lpSum([f1_mf[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mf]) + lpSum([f2_mf[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mf]) + \
-                            lpSum([f1_mf[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mf]) + lpSum([f2_mf[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mf]) <= node_capacities[node], f"Node_Capacity_{node}_{k}_{constraint_counter}"
-            constraint_counter += 1
+                            lpSum([f1_mf[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mf]) + lpSum([f2_mf[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mf]) <= node_capacities[node], f"Node_Capacity_{node}_{k}_{constraint_counter3}"
+            constraint_counter3 += 1
+# Ограничение 4: Сумма всего потока, исходящего из источника равно пропускной способности этого источника
 
-# ограничения на количество груза, отправляемого из источников
 for k in K:
     for s in sources[k]:
-        # сумма всего поток, исходящий из источника s для груза k равно пропускной способности этого истокчника
         total_outgoing_flow = lpSum([f1_mf[(s, j, k)] for (s, j) in A1 if s == s and (s, j, k) in f1_mf]) + \
                               lpSum([f2_mf[(s, j, k)] for (s, j) in A2 if s == s and (s, j, k) in f2_mf])
 
-        # Проверяем, есть ли у источника s ограничение пропускной способности
         if s in node_capacities:
             prob_max_flow += total_outgoing_flow <= node_capacities[s], f"Source_Capacity_{s}_{k}"
 
-#максимизация потока
+# ------------------------------------------------------------------------------
+# Решение задачи максимизации потока
+# ------------------------------------------------------------------------------
+
 prob_max_flow.solve()
 optimal_flow = value(prob_max_flow.objective)
-print("Оптимальный поток:", optimal_flow)
 
-#модель PuLP - мпинимизация затрат
+# ------------------------------------------------------------------------------
+# Модель минимизации затрат
+# ------------------------------------------------------------------------------
+
 prob_min_cost = LpProblem("MinCostGivenMaxFlow", LpMinimize)
 
+# Переменные затрат
 f1_mc = LpVariable.dicts("f1_mc", [(i, j, k) for (i, j) in A1 for k in K], lowBound=0, cat='Continuous')
 f2_mc = LpVariable.dicts("f2_mc", [(i, j, k) for (i, j) in A2 for k in K], lowBound=0, cat='Continuous')
 
+# Целевая функция
 prob_min_cost += lpSum([costs[(i, j, k)] * f1_mc[(i, j, k)] for (i, j) in A1 for k in K]) + lpSum([costs[(i, j, k)] * f2_mc[(i, j, k)] for (i, j) in A2 for k in K]), "Total Cost"
 
-constraint_counter_min_cost = 0  # Initialize a separate counter for min cost
-#ограничения
-#проверка, что в маршрутах от точких хранения конечная точка является ТХ или ТП
+# ------------------------------------------------------------------------------
+# Ограничения модели минимизации затрат
+# ------------------------------------------------------------------------------
+
+# Ограничение 1: Величина потока по дуге не превосходит пропускную способность этой дуги
+
+constraint_counter4 = 0 # счетчик ограничений
+# Для маршрутов от ТВ
 for (i, j) in A1:
     is_storage = j in df_storage['node_id'].values
     is_consumption = j in df_consumption['node_id'].values
 
-    #если конечная точка - ТХ, то пишем ограничение о том, что суммарный поток по дуги не выше пропускной сопособности жтой дуги
+    #если конечная точка - ТХ, то пишем ограничение о том, что суммарный поток по дуге не выше пропускной сопособности этой дуги
     if is_storage:
         #<= route_capacities1.get((i, j) - возвращаем ПС дуги, если она есть, иначе - 0
-        prob_min_cost += lpSum([f1_mc[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_ES_{i}_{j}_{constraint_counter_min_cost}"
-        constraint_counter_min_cost += 1 #увеличиваем счетчик
-    #если конечная точка - ТП, то пишем ограничение о том, что суммарный поток по дуги не выше пропускной сопособности жтой дуги
+        prob_min_cost += lpSum([f1_mc[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_ES_{i}_{j}_{constraint_counter4}"
+        constraint_counter4 += 1
+    #если конечная точка - ТП, то пишем ограничение о том, что суммарный поток по дуге не выше пропускной сопособности этой дуги
     elif is_consumption:
-        prob_min_cost += lpSum([f1_mc[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_EC_{i}_{j}_{constraint_counter_min_cost}"
-        constraint_counter_min_cost += 1 #увеличиваем счетчик
+        prob_min_cost += lpSum([f1_mc[(i, j, k)] for k in K]) <= route_capacities1.get((i, j), 0), f"C_A1_EC_{i}_{j}_{constraint_counter4}"
+        constraint_counter4 += 1
 
-#также для маршрутов от тх
+# Также для маршрутов от ТХ
 for (i, j) in A2:
-    prob_min_cost += lpSum([f2_mc[(i, j, k)] for k in K]) <= route_capacities2.get((i, j), 0), f"C_A2_{i}_{j}_{constraint_counter_min_cost}"
-    constraint_counter_min_cost += 1 #увеличиваем счетчик
+    prob_min_cost += lpSum([f2_mc[(i, j, k)] for k in K]) <= route_capacities2.get((i, j), 0), f"C_A2_{i}_{j}_{constraint_counter4}"
+    constraint_counter4 += 1
 
-#все уникальные узлы
-nodes = set()
-for (i, j) in A1 + A2:
-    nodes.add(i)
-    nodes.add(j)
+# Ограничение 2: Поток, входящий в точку хранения (не в sources или sinks) больше или равен исходящему из этой точки потоку
 
-#ограничение баланса потока (входящий в узел поток равен потоку исходящему из него)
+constraint_counter4 = 0 #счетчик ограничений
+nodes = df_nodes['node_id'].tolist()  # Все узлы
+# Теперь источники и стоки должны быть определены на основе df_transport
+sources = {}
+sinks = {}
+for k in K:  # Для каждого типа груза
+        sources[k] = [row['start_entry_id'] for index, row in df_transport.iterrows() if row['start_entry_id'] is not None]
+        sinks[k] = [row['end_consumption_id'] for index, row in df_transport.iterrows() if row['end_consumption_id'] is not None]
+
 for node in nodes:
     if node not in [item for sublist in sources.values() for item in sublist] and node not in [item for sublist in sinks.values() for item in sublist]:
         for k in K:
-            #вхрдящий поток == исходящему потоку
-            prob_min_cost += lpSum([f1_mc[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mc]) + lpSum([f2_mc[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mc]) == \
-                            lpSum([f1_mc[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mc]) + lpSum([f2_mc[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mc]), f"Flow_Balance_{node}_{k}_{constraint_counter_min_cost}"
-            constraint_counter_min_cost += 1
+            # Ограничение баланса потока
+            prob_min_cost += lpSum([f1_mc[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mc]) + lpSum([f2_mc[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mc]) >= \
+                            lpSum([f1_mc[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mc]) + lpSum([f2_mc[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mc]), f"Flow_Balance_{node}_{k}_{constraint_counter4}"
+            constraint_counter4 += 1
 
-#ограничение пропускной способности узла (суммарный поток , проходящий через узел равен пропускной способности ухла)
+# Ограничение 3: Суммарный поток, проходящий через узел, не превосходит пропускную способность этого узла
+constraint_counter5 = 0 # счетчик ограничения
 for node in df_nodes['node_id']:
     for k in K:
-        if node in node_capacities:
-            #суммарный вход поток+ суммарный исход поток <= пропускная способность узла
+        if node in df_nodes['capacity'].values:
+            #суммарный вход поток + суммарный исход поток <= пропускная способность узла
             prob_min_cost += lpSum([f1_mc[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mc]) + lpSum([f2_mc[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mc]) + \
-                            lpSum([f1_mc[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mc]) + lpSum([f2_mc[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mc]) <= node_capacities[node], f"Node_Capacity_{node}_{k}_{constraint_counter_min_cost}"
-            #счетчик ограничения
-            constraint_counter_min_cost += 1
+                            lpSum([f1_mc[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mc]) + lpSum([f2_mc[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mc]) <= df_nodes[df_nodes['node_id']==node]['capacity'].values[0], f"Node_Capacity_{node}_{k}_{constraint_counter5}"
+            constraint_counter5 += 1
 
-#пропускная способность источника (поток выходящий из источника не превышает пропускную способность этого источника)
-source_constraint_counter_min_cost = 0
+# Ограничение 4: Сумма всего потока, исходящего из источника равно пропускной способности этого источника
+
+constraint_counter6 = 0
+node_capacities = df_nodes.set_index('node_id')['capacity'].to_dict()
 for k in K:
     for s in sources[k]:
-        #исходящий поток только
         total_outgoing_flow = lpSum([f1_mc[(s, j, k)] for (s, j) in A1 if (s, j, k) in f1_mc]) + \
                               lpSum([f2_mc[(s, j, k)] for (s, j) in A2 if (s, j, k) in f2_mc])
 
         # суммарный поток, выходящий из источника s, не превышал его пропускную способность
         if s in node_capacities:
-            prob_min_cost += total_outgoing_flow <= node_capacities[s], f"Source_Capacity_{s}_{k}_{source_constraint_counter_min_cost}"
-            source_constraint_counter_min_cost += 1
+            prob_min_cost += total_outgoing_flow <= node_capacities[s], f"Source_Capacity_{s}_{k}_{constraint_counter6}"
+            constraint_counter6 += 1
+
         # Добавляем ограничение на минимальный поток из каждой точки входа
-        prob_min_cost += total_outgoing_flow >= 1, f"Min_Source_Flow_{s}_{k}_{source_constraint_counter_min_cost}"
-        source_constraint_counter_min_cost += 1
+        prob_min_cost += total_outgoing_flow >= 1, f"Min_Source_Flow_{s}_{k}_{constraint_counter6}"
+        constraint_counter6 += 1
 
-#оптимальный поток будет не меньше вычисленного оптимального потока
+# ------------------------------------------------------------------------------
+# Решение задачи максимизации потока
+# ------------------------------------------------------------------------------
+
+# Здесь optimal_flow, A1 и A2 должны быть определены на основе текущей даты.
+
+# Оптимальный поток задачи минимизации затрат не превосходит вычисленный оптимальный поток
 prob_min_cost += lpSum([f1_mc[(i, j, k)] for (i, j) in A1 for k in K]) + lpSum([f2_mc[(i, j, k)] for (i, j) in A2 for k in K]) >= optimal_flow, "Maintain_Max_Flow"
-
 prob_min_cost.solve()
-print("Общие затраты:", value(prob_min_cost.objective))
-
 
 #ГРАФ 
 #использование маршрутов 
