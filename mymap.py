@@ -749,8 +749,8 @@ def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
 
 if show_routes:
     routes = []
-    for index, row in df_routes.iterrows():
-        #координаты и наименование начточки
+    for index, row in df_routes.iterrows():  # Используем df_routes
+        # Координаты и наименование начальной точки
         start_lat = None
         start_lon = None
         start_name = None
@@ -767,11 +767,10 @@ if show_routes:
                 start_lon = start_point['longitude'].iloc[0]
                 start_name = start_point['node_name'].iloc[0]
 
-        #координаты и наименование кон точки
+        # Координаты и наименование конечной точки
         end_lat = None
         end_lon = None
         end_name = None
-
         if pd.notna(row['end_storage_id']):
             end_point = df_storage[df_storage['node_id'] == row['end_storage_id']]
             if not end_point.empty:
@@ -785,36 +784,29 @@ if show_routes:
                 end_lon = end_point['longitude'].iloc[0]
                 end_name = end_point['node_name'].iloc[0]
 
-        # рисуем пути (дуги)
+        # Рисуем пути (дуги)
         if start_lat is not None and start_lon is not None and end_lat is not None and end_lon is not None:
             # Определяем start_node и end_node здесь, внутри цикла
-            start_node = int(row['start_node'])
-            end_node = int(row['end_node'])
+            start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
+            end_node = row['end_storage_id'] if pd.notna(row['end_storage_id']) else row['end_consumption_id']
 
-            # вспомогательный словарь для комментариев в тултипах
-            route = {
-                'route_id': row['route_id'],
-                'start_lat': start_lat,
-                'start_lon': start_lon,
-                'start_name': start_name,
-                'end_lat': end_lat,
-                'end_lon': end_lon,
-                'end_name': end_name,
-                'transportation_cost': row['transportation_cost']  # Добавляем стоимость транспортировки
-            }
-            routes.append(route)
-
+            # Проверка на None (или np.nan) before converting to int
+            if not pd.isna(start_node) and not pd.isna(end_node):
+              start_node = int(start_node)
+              end_node = int(end_node)
+            else:
+              continue # If any of start_node or end_node is still none, skip that row
             # Определяем цвет и толщину линии на основе потока
             if flow_network.has_edge(start_node, end_node):
                 total_flow = flow_network[start_node][end_node]['flow']
                 capacity = flow_network[start_node][end_node]['capacity']
-                color = 'gray' if total_flow > 0 else 'black'
+                color = 'blue'  # Цвет для маршрутов с потоком
                 weight = max(1, total_flow / 20000)  # толщина линии пропорциональна потоку
             else:
                 total_flow = 0
                 capacity = 0
-                color = 'gray'
-                weight = 1
+                color = 'gray'  # Цвет для маршрутов без потока
+                weight = 1  # Минимальная толщина линии
 
             # Создание дуги
             arc = create_arc(start_lat, start_lon, end_lat, end_lon, height=0.1)
@@ -834,12 +826,14 @@ if show_routes:
                 smooth_factor=0,
                 tooltip=tooltip_text).add_to(m)
 
+
 df_routes = df_routes.rename(columns={'route_type_x': 'route_type'})
 st.write("df_routes", df_routes)
 st.write("df_entry", df_entry)
 st.write("df_storage", df_storage)
 st.write("df_consumption", df_consumption)
 st.write("df_nodes", df_nodes)
+
 
 # Отображение карты в Streamlit
 #folium_static(m, width=1500, height=800)
