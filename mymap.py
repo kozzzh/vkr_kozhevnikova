@@ -39,7 +39,9 @@ def get_data(query):
             cur.close()
             conn.close()
 
-st.write(f"psycopg2 version: {psycopg2.__version__}")     
+st.write(df_routes.columns)
+st.write(f"psycopg2 version: {psycopg2.__version__}") 
+   
 # точки входа
 # определение запроса
 entry_query = "select entry_id, entry_name, latitude, longitude, type from points_of_entry"
