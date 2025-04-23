@@ -105,21 +105,31 @@ df_nodes = pd.concat(frames, ignore_index=True)
 A1 = []  # Прямые маршруты от ТВ до ТХ
 A2 = []  # Маршруты от ТХ до ТП
 
-# Проверяем, что df_routes не пуст
-if not df_routes.empty:
-    for index, row in df_routes.iterrows():
-        start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
-        end_node = row['end_consumption_id'] if pd.notna(row['end_consumption_id']) else row['end_storage_id']
+df_routes['start_node'] = None  # Создаем столбец start_node, заполненный None
+df_routes['end_node'] = None    # Создаем столбец end_node, заполненный None
 
+if not df_routes.empty:  # Проверяем, что df_routes не пуст
+    for index, row in df_routes.iterrows():
+        start_node = row['start_entry_id']
+        end_node = row['end_consumption_id']  # Правильно выбираем end_node
+        if pd.isna(start_node):
+            start_node = row['start_storage_id']
+        if pd.isna(end_node):
+            end_node = row['end_storage_id']
         # Проверка на None (или np.nan) before converting to int
         if not pd.isna(start_node) and not pd.isna(end_node):
-            start_node = int(start_node)
-            end_node = int(end_node)
+            try:
+               start_node = int(start_node)
+               end_node = int(end_node)
+               df_routes.at[index, 'start_node'] = start_node
+               df_routes.at[index, 'end_node'] = end_node
 
-            if not pd.isna(row['start_entry_id']):
-                A1.append((start_node, end_node))
-            else:
-                A2.append((start_node, end_node))
+               if not pd.isna(row['start_entry_id']):
+                   A1.append((start_node, end_node))
+               elif not pd.isna(row['start_storage_id']):
+                   A2.append((start_node, end_node))
+            except ValueError as e:
+               print(f"Не удалось преобразовать в int: {start_node}, {end_node}. Ошибка: {e}")
 
 # Типы грузов
 K = df_cargo['cargo_type'].tolist()
