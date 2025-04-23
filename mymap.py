@@ -85,7 +85,7 @@ def get_transport_routes(current_date: date):
     return df_routes
 
 # Получаем текущую дату из Streamlit (можно использовать слайдер или выбор даты)
-#current_date = st.date_input("Выберите дату", value=datetime.today())
+current_date = st.date_input("Выберите дату", value=datetime.today())
 
 # Получаем данные о маршрутах на выбранную дату
 df_routes = get_transport_routes(current_date)
