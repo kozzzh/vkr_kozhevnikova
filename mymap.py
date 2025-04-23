@@ -23,23 +23,8 @@ def get_data(query):
         # Получите DATABASE_URL из переменных окружения
         database_url = os.environ.get("DATABASE_URL")
 
-        # Разберите URL подключения
-        uri = urllib.parse.urlparse(database_url)
-        dbname = uri.path[1:]
-        user = uri.username
-        password = uri.password
-        host = uri.hostname
-        port = uri.port
-
         # Подключитесь к базе данных
-        conn = psycopg2.connect(
-            dbname=dbname,
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            sslmode='require'
-        )
+        conn = psycopg2.connect(database_url, sslmode='require')  # Прямое подключение
 
         cur = conn.cursor()
         cur.execute(query)
@@ -47,7 +32,7 @@ def get_data(query):
         cur.close()
         return data
     except psycopg2.Error as e:
-        st.error(f"Ошибка при подключении к базе данных: {e}")
+        st.error(f"Ошибка при подключении к базе данных: {e}")  # Используйте st.error для отображения ошибок в Streamlit
         return None
     finally:
         if conn is not None:
