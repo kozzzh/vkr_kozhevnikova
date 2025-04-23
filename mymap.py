@@ -21,8 +21,9 @@ def get_data(query):
     conn = None
     try:
         # Получите DATABASE_URL из переменных окружения
-        database_url = os.environ.get("DATABASE_URL")
-
+        #database_url = os.environ.get("DATABASE_URL")
+        database_url = "postgresql://postgres.adahxhhueacquagvsrgn:90D1YIW2v3lFet6y@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+        
         # Подключитесь к базе данных
         conn = psycopg2.connect(database_url, sslmode='require')  # Прямое подключение
 
