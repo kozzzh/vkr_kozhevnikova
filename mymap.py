@@ -75,18 +75,18 @@ def get_transport_routes(current_date: date):
         WHERE start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')
     """
     transport_data = get_data(query)
-    df_transport = pd.DataFrame(transport_data, columns=[
+    df_routes = pd.DataFrame(transport_data, columns=[
         'route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id',
         'route_type', 'cargo_volume', 'capacity', 'transportation_cost', 'allowed_transport_vehicles',
         'start_date', 'end_date'
     ])
-    return df_transport
+    return df_routes
 
 # Получаем текущую дату из Streamlit (можно использовать слайдер или выбор даты)
 current_date = st.date_input("Выберите дату", value=datetime.today())
 
 # Получаем данные о маршрутах на выбранную дату
-df_transport = get_transport_routes(current_date)
+df_routes = get_transport_routes(current_date)
 
 # Переименовываем столбцы для удобства
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
@@ -97,13 +97,13 @@ df_consumption = df_consumption.rename(columns={'consumption_id': 'node_id', 'co
 frames = [df_entry, df_storage, df_consumption]
 df_nodes = pd.concat(frames, ignore_index=True)
 
-# Создаем списки для дуг (с учетом выбранной даты и df_transport)
+# Создаем списки для дуг (с учетом выбранной даты и df_routes)
 A1 = []  # Прямые маршруты от ТВ до ТХ
 A2 = []  # Маршруты от ТХ до ТП
 
-# Проверяем, что df_transport не пуст
-if not df_transport.empty:
-    for index, row in df_transport.iterrows():
+# Проверяем, что df_routes не пуст
+if not df_routes.empty:
+    for index, row in df_routes.iterrows():
         start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
         end_node = row['end_consumption_id'] if pd.notna(row['end_consumption_id']) else row['end_storage_id']
 
@@ -137,8 +137,8 @@ if df_nodes is not None:
 
 # словарь со стоимостями доставки
 costs = {}
-# Use df_transport here
-for index, row in df_transport.iterrows():
+# Use df_routes here
+for index, row in df_routes.iterrows():
     start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
     end_node = row['end_consumption_id'] if pd.notna(row['end_consumption_id']) else row['end_storage_id']
     transportation_cost = row['transportation_cost']
@@ -168,8 +168,8 @@ for index, row in df_nodes.iterrows():
 
 #пропусные способности маршрутов от точки входа
 route_capacities1 = {}
-# Use df_transport here
-for index, row in df_transport.iterrows():
+# Use df_routes here
+for index, row in df_routes.iterrows():
     start_entry_id = row['start_entry_id']
     end_storage_id = row['end_storage_id']
     end_consumption_id = row['end_consumption_id']
@@ -185,8 +185,8 @@ for index, row in df_transport.iterrows():
 
 #маршруты от точки хранения
 route_capacities2 = {}
-# Use df_transport here
-for index, row in df_transport.iterrows():
+# Use df_routes here
+for index, row in df_routes.iterrows():
     start_storage_id = row['start_storage_id']
     end_consumption_id = row['end_consumption_id']
     capacity = row['capacity']
@@ -320,12 +320,12 @@ for (i, j) in A2:
 
 constraint_counter4 = 0 #счетчик ограничений
 nodes = df_nodes['node_id'].tolist()  # Все узлы
-# Теперь источники и стоки должны быть определены на основе df_transport
+# Теперь источники и стоки должны быть определены на основе df_routes
 sources = {}
 sinks = {}
 for k in K:  # Для каждого типа груза
-        sources[k] = [row['start_entry_id'] for index, row in df_transport.iterrows() if row['start_entry_id'] is not None]
-        sinks[k] = [row['end_consumption_id'] for index, row in df_transport.iterrows() if row['end_consumption_id'] is not None]
+        sources[k] = [row['start_entry_id'] for index, row in df_routes.iterrows() if row['start_entry_id'] is not None]
+        sinks[k] = [row['end_consumption_id'] for index, row in df_routes.iterrows() if row['end_consumption_id'] is not None]
 
 for node in nodes:
     if node not in [item for sublist in sources.values() for item in sublist] and node not in [item for sublist in sinks.values() for item in sublist]:
