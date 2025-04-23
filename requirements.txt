@@ -64,7 +64,7 @@ xyzservices==2025.1.0
 zipp==3.21.0
 pandas
 numpy
-psycopg2-binary
+psycopg2-binary==2.9.10
 pulp
 matplotlib
 plotly
