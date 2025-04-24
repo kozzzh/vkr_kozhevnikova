@@ -38,8 +38,6 @@ def get_data(query):
         if conn is not None:
             cur.close()
             conn.close()
-
-st.write(f"psycopg2 version: {psycopg2.__version__}") 
    
 # точки входа
 # определение запроса
@@ -373,9 +371,18 @@ for k in K:
             prob_min_cost += total_outgoing_flow <= node_capacities[s], f"Source_Capacity_{s}_{k}_{constraint_counter6}"
             constraint_counter6 += 1
 
+        #  Ограничение: Если поток выходит из точки входа, то он должен быть доставлен в точку потребления
+        total_incoming_flow = lpSum([f1_mc[(i, s, k)] for (i, s) in A1 if (i, s, k) in f1_mc]) + \
+                             lpSum([f2_mc[(i, s, k)] for (i, s) in A2 if (i, s, k) in f2_mc])
+
+        #  Ограничение: Поток на выходе должен равняться потоку на входе для транзитных точек
+        #  Это обеспечит доставку потока от источника к потребителю
+        prob_min_cost += total_outgoing_flow == total_incoming_flow, f"Flow_Conservation_{s}_{k}_{constraint_counter6}"
+        constraint_counter6 += 1
         # Добавляем ограничение на минимальный поток из каждой точки входа
         prob_min_cost += total_outgoing_flow >= 1, f"Min_Source_Flow_{s}_{k}_{constraint_counter6}"
         constraint_counter6 += 1
+
 
 # ------------------------------------------------------------------------------
 # Решение задачи максимизации потока
@@ -713,128 +720,134 @@ m.get_root().header.add_child(folium.Element('<link rel="stylesheet" href="https
 # дуги
 
 def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
+    points = []
+    # Define intermediate point
+    mid_lat = (start_lat + end_lat) / 2
+    mid_lon = (start_lon + end_lon) / 2
 
-    #линия между точками
-    line = LineString([(start_lon, start_lat), (end_lon, end_lat)])
+    a = (end_lat - start_lat) / 2
+    b = (end_lon - start_lon) / 2
+    c = np.sqrt(a**2 + b**2)
 
-    # середина между точками
-    midpoint = line.interpolate(0.5, normalized=True)
-    mid_lon, mid_lat = midpoint.x, midpoint.y
+    # Midpoint altitude
+    mid_pt_alt = c * height
 
-    #расстояние между точками
-    distance = line.length
+    # Parametric curve
+    for i in np.linspace(0, 1, 100):
+        lat = (start_lat * (1 - i)) + (end_lat * i)
+        lon = (start_lon * (1 - i)) + (end_lon * i)
+        altitude = mid_pt_alt * np.sin(np.pi * i)
 
-    #угол поворота дуги
-    angle = np.arctan2(end_lat - start_lat, end_lon - start_lon)
+        # Offset the latitude/longitude by altitude
+        lat_offset = altitude * np.cos(np.arctan2(b, a))
+        lon_offset = altitude * np.sin(np.arctan2(b, a))
 
-    # создание Point в средней точке и смещение его по нормали к линии
-    arc_point = Point(mid_lon, mid_lat)
-    arc_point = Point(arc_point.x - np.sin(angle) * height * distance, arc_point.y + np.cos(angle) * height * distance)
+        # Append point to list
+        points.append((lat + lat_offset, lon + lon_offset))
+    return points
 
-    # создание дуги с использованием интерполяции
-    num_points = 50  # Количество точек для отрисовки дуги
-    arc = []
-    for i in range(num_points + 1):
-        alpha = i / num_points
-        point = line.interpolate(alpha, normalized=True)
-        x = point.x
-        y = point.y
-        # смещение точки по параболе
-        z = 4 * height * distance * alpha * (1 - alpha)
-        x = x + (arc_point.x - mid_lon) * z
-        y = y + (arc_point.y - mid_lat) * z
-        arc.append((y, x))  # Широта, долгота
+# Все маршруты (вне зависимости от даты)
+routes_query_all = """
+    SELECT DISTINCT route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id
+    FROM transport_routes
+"""
+routes_data_all = get_data(routes_query_all)
+df_routes_all = pd.DataFrame(routes_data_all, columns=['route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id'])
 
-    return arc
+# Функция для определения потока на выбранную дату
+def get_flow_for_date(row, current_date):
+    start_entry_id = row['start_entry_id']
+    start_storage_id = row['start_storage_id']
+    end_storage_id = row['end_storage_id']
+    end_consumption_id = row['end_consumption_id']
 
-if show_routes:
-    routes = []
-    for index, row in df_routes.iterrows():  # Используем df_routes
-        # Координаты и наименование начальной точки
-        start_lat = None
-        start_lon = None
-        start_name = None
-        if pd.notna(row['start_entry_id']):
-            start_point = df_entry[df_entry['node_id'] == row['start_entry_id']]
-            if not start_point.empty:
-                start_lat = start_point['latitude'].iloc[0]
-                start_lon = start_point['longitude'].iloc[0]
-                start_name = start_point['node_name'].iloc[0]
-        elif pd.notna(row['start_storage_id']):
-            start_point = df_storage[df_storage['node_id'] == row['start_storage_id']]
-            if not start_point.empty:
-                start_lat = start_point['latitude'].iloc[0]
-                start_lon = start_point['longitude'].iloc[0]
-                start_name = start_point['node_name'].iloc[0]
+    # Обрабатываем NaN значения
+    start_entry_id_str = "NULL" if pd.isna(start_entry_id) else str(int(start_entry_id))
+    start_storage_id_str = "NULL" if pd.isna(start_storage_id) else str(int(start_storage_id))
+    end_storage_id_str = "NULL" if pd.isna(end_storage_id) else str(int(end_storage_id))
+    end_consumption_id_str = "NULL" if pd.isna(end_consumption_id) else str(int(end_consumption_id))
 
-        # Координаты и наименование конечной точки
-        end_lat = None
-        end_lon = None
-        end_name = None
-        if pd.notna(row['end_storage_id']):
-            end_point = df_storage[df_storage['node_id'] == row['end_storage_id']]
-            if not end_point.empty:
-                end_lat = end_point['latitude'].iloc[0]
-                end_lon = end_point['longitude'].iloc[0]
-                end_name = end_point['node_name'].iloc[0]
-        elif pd.notna(row['end_consumption_id']):
-            end_point = df_consumption[df_consumption['node_id'] == row['end_consumption_id']]
-            if not end_point.empty:
-                end_lat = end_point['latitude'].iloc[0]
-                end_lon = end_point['longitude'].iloc[0]
-                end_name = end_point['node_name'].iloc[0]
+    query = f"""
+        SELECT cargo_volume
+        FROM transport_routes
+        WHERE route_id = {row['route_id']}
+        AND start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')
+        AND (start_entry_id = {start_entry_id_str} OR start_entry_id IS NULL)
+        AND (start_storage_id = {start_storage_id_str} OR start_storage_id IS NULL)
+        AND (end_storage_id = {end_storage_id_str} OR end_storage_id IS NULL)
+        AND (end_consumption_id = {end_consumption_id_str} OR end_consumption_id IS NULL)
+    """
 
-        # Рисуем пути (дуги)
-        if start_lat is not None and start_lon is not None and end_lat is not None and end_lon is not None:
-            # Определяем start_node и end_node здесь, внутри цикла
-            start_node = row['start_entry_id'] if pd.notna(row['start_entry_id']) else row['start_storage_id']
-            end_node = row['end_storage_id'] if pd.notna(row['end_storage_id']) else row['end_consumption_id']
+    flow_data = get_data(query)
+    if flow_data:
+        return flow_data[0][0]  # Возвращаем cargo_volume, если есть данные
+    else:
+        return 0
 
-            # Проверка на None (или np.nan) before converting to int
-            if not pd.isna(start_node) and not pd.isna(end_node):
-              start_node = int(start_node)
-              end_node = int(end_node)
-            else:
-              continue # If any of start_node or end_node is still none, skip that row
-            # Определяем цвет и толщину линии на основе потока
-            if flow_network.has_edge(start_node, end_node):
-                total_flow = flow_network[start_node][end_node]['flow']
-                capacity = flow_network[start_node][end_node]['capacity']
-                color = 'blue'  # Цвет для маршрутов с потоком
-                weight = max(1, total_flow / 20000)  # толщина линии пропорциональна потоку
-            else:
-                total_flow = 0
-                capacity = 0
-                color = 'gray'  # Цвет для маршрутов без потока
-                weight = 1  # Минимальная толщина линии
+# Для каждой возможной дуги
+for index, row in df_routes_all.iterrows():
+    # Определяем start_node и end_node (как и раньше)
+    start_node = row['start_entry_id']
+    end_node = row['end_consumption_id']
+    if pd.isna(start_node):
+       start_node = row['start_storage_id']
+    if pd.isna(end_node):
+        end_node = row['end_storage_id']
 
-            # Создание дуги
-            arc = create_arc(start_lat, start_lon, end_lat, end_lon, height=0.1)
+    # Проверяем, что узлы не пустые
+    if not pd.isna(start_node) and not pd.isna(end_node):
+        start_node = int(start_node)
+        end_node = int(end_node)
 
-            tooltip_text = f"<b>Номер маршрута:</b> {row['route_id']}<br>" \
-                           f"<b>Начальная точка:</b> {start_name}<br>" \
-                           f"<b>Конечная точка:</b> {end_name}<br>" \
-                           f"<b>Стоимость транспортировки:</b> {row['transportation_cost']}<br>" \
-                           f"<b>Поток:</b> {total_flow:.2f}<br>" \
-                           f"<b>Пропускная способность:</b> {capacity}"
+        # Получаем координаты start_node
+        start_node_data = df_nodes[df_nodes['node_id'] == start_node]
+        if not start_node_data.empty:
+            start_lat = start_node_data['latitude'].values[0]
+            start_lon = start_node_data['longitude'].values[0]
+            start_name = start_node_data['node_name'].values[0]
+        else:
+            continue  # Пропускаем, если нет координат
 
-            folium.PolyLine(
-                locations=arc,
-                color=color,
-                weight=weight,  # Устанавливаем толщину линии
-                opacity=0.7,
-                smooth_factor=0,
-                tooltip=tooltip_text).add_to(m)
+        # Получаем координаты end_node
+        end_node_data = df_nodes[df_nodes['node_id'] == end_node]
+        if not end_node_data.empty:
+            end_lat = end_node_data['latitude'].values[0]
+            end_lon = end_node_data['longitude'].values[0]
+            end_name = end_node_data['node_name'].values[0]
+        else:
+            continue  # Пропускаем, если нет координат
 
+        # Получаем поток для данной дуги на выбранную дату
+        total_flow = get_flow_for_date(row, current_date)
 
-df_routes = df_routes.rename(columns={'route_type_x': 'route_type'})
-st.write("df_routes", df_routes)
+        # Определяем цвет и толщину дуги
+        if total_flow > 0:
+            color = 'gray'  # Серая дуга, если есть поток
+            weight = 2 + (total_flow / 20000)  # Толщина пропорциональна потоку
+        else:
+            color = 'black'  # Черная линия, если нет потока
+            weight = 1
+
+        # Создание дуги
+        arc = create_arc(start_lat, start_lon, end_lat, end_lon, height=0.1)
+
+        tooltip_text = f"<b>Начальная точка:</b> {start_name}<br>" \
+                       f"<b>Конечная точка:</b> {end_name}<br>" \
+                       f"<b>Поток:</b> {total_flow:.2f}"
+
+        folium.PolyLine(
+            locations=arc,
+            color=color,
+            weight=weight,  # Устанавливаем толщину линии
+            opacity=0.7,
+            smooth_factor=0,
+            tooltip=tooltip_text).add_to(m)
+
+# Остальной код (вывод датафреймов, отображение карты)
 st.write("df_entry", df_entry)
 st.write("df_storage", df_storage)
 st.write("df_consumption", df_consumption)
 st.write("df_nodes", df_nodes)
 
-
 # Отображение карты в Streamlit
-#folium_static(m, width=1500, height=800)
 st.components.v1.html(m._repr_html_(), height=1000, width=1500)
