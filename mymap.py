@@ -16,28 +16,22 @@ from streamlit_folium import folium_static
 from shapely.geometry import Point, LineString
 
 #подключение к постгре
-@st.cache_data
 def get_data(query):
+    #подключение
     conn = None
-    try:
-        # Получите DATABASE_URL из переменных окружения
-        database_url = os.environ.get("DATABASE_URL")
-
-        # Подключитесь к базе данных
-        conn = psycopg2.connect(database_url, sslmode='require')
-
-        cur = conn.cursor()
-        cur.execute(query)  # <--- Исправлено здесь
-        data = cur.fetchall()
-        cur.close()
-        return data
-    except psycopg2.Error as e:
-        st.error(f"Ошибка при подключении к базе данных: {e}")
-        return None
-    finally:
-        if conn is not None:
-            cur.close()
-            conn.close()
+    #установление подключения
+    conn = psycopg2.connect(host="localhost", database="postgres", user="postgres", password="1602", port="5432")
+    #курсор для хранения последнего оператора скл
+    cur = conn.cursor()
+    #выполнение подключения
+    cur.execute(query)
+    #получаем все строки
+    data = cur.fetchall()
+    cur.close()
+    return data
+    #если соединение установлено (не none), то завершаем подключение
+    if conn is not None:
+        conn.close()
    
 # точки входа
 # определение запроса
