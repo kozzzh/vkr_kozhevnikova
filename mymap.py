@@ -59,10 +59,17 @@ consumption_query = "select consumption_id, consumption_name, latitude, longitud
 consumption_data = get_data(consumption_query)
 df_consumption = pd.DataFrame(consumption_data, columns=['consumption_id', 'consumption_name', 'latitude', 'longitude'])
 df_consumption['capacity'] = [500000]
+
 #типы грузов
 cargo_query = "select cargo_id, cargo_type, unit from cargo_types"
 cargo_data = get_data(cargo_query)
 df_cargo = pd.DataFrame(cargo_data, columns=['cargo_id', 'cargo_type', 'unit'])
+
+# Все маршруты (вне зависимости от даты)
+routes_query_all = """select distinct route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id from transport_routes"""
+routes_data_all = get_data(routes_query_all)
+df_routes_all = pd.DataFrame(routes_data_all, columns=['route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id'])
+
 
 #транспортные пути
 # Функция для получения данных о маршрутах с учетом даты
@@ -253,7 +260,6 @@ for (i, j) in A2:
     constraint_counter1 += 1 #увеличиваем счетчик
 
 # Ограничение 2: Поток, входящий в точку хранения (не в sources или sinks) больше или равен исходящему из этой точки потоку
-
 constraint_counter2 = 0 #счетчик ограничений
 for node in nodes:
     if node not in [item for sublist in sources.values() for item in sublist] and node not in [item for sublist in sinks.values() for item in sublist]:
@@ -263,7 +269,6 @@ for node in nodes:
             constraint_counter2 += 1
 
 # Ограничение 3: Суммарный поток, проходящий через узел, не превосходит пропускную способность этого узла
-
 constraint_counter3 = 0 #счетчик ограничений
 for node in df_nodes['node_id']:
     for k in K:
@@ -271,8 +276,8 @@ for node in df_nodes['node_id']:
             prob_max_flow += lpSum([f1_mf[(i, node, k)] for (i, node) in A1 if (i, node, k) in f1_mf]) + lpSum([f2_mf[(i, node, k)] for (i, node) in A2 if (i, node, k) in f2_mf]) + \
                             lpSum([f1_mf[(node, j, k)] for (node, j) in A1 if (node, j, k) in f1_mf]) + lpSum([f2_mf[(node, j, k)] for (node, j) in A2 if (node, j, k) in f2_mf]) <= node_capacities[node], f"Node_Capacity_{node}_{k}_{constraint_counter3}"
             constraint_counter3 += 1
-# Ограничение 4: Сумма всего потока, исходящего из источника равно пропускной способности этого источника
 
+# Ограничение 4: Сумма всего потока, исходящего из источника равно пропускной способности этого источника
 for k in K:
     for s in sources[k]:
         total_outgoing_flow = lpSum([f1_mf[(s, j, k)] for (s, j) in A1 if s == s and (s, j, k) in f1_mf]) + \
@@ -329,7 +334,6 @@ for (i, j) in A2:
     constraint_counter4 += 1
 
 # Ограничение 2: Поток, входящий в точку хранения (не в sources или sinks) больше или равен исходящему из этой точки потоку
-
 constraint_counter4 = 0 #счетчик ограничений
 nodes = df_nodes['node_id'].tolist()  # Все узлы
 # Теперь источники и стоки должны быть определены на основе df_routes
@@ -358,7 +362,6 @@ for node in df_nodes['node_id']:
             constraint_counter5 += 1
 
 # Ограничение 4: Сумма всего потока, исходящего из источника равно пропускной способности этого источника
-
 constraint_counter6 = 0
 node_capacities = df_nodes.set_index('node_id')['capacity'].to_dict()
 for k in K:
@@ -388,13 +391,15 @@ for k in K:
 # Решение задачи максимизации потока
 # ------------------------------------------------------------------------------
 
-# Здесь optimal_flow, A1 и A2 должны быть определены на основе текущей даты.
 
 # Оптимальный поток задачи минимизации затрат не превосходит вычисленный оптимальный поток
 prob_min_cost += lpSum([f1_mc[(i, j, k)] for (i, j) in A1 for k in K]) + lpSum([f2_mc[(i, j, k)] for (i, j) in A2 for k in K]) >= optimal_flow, "Maintain_Max_Flow"
 prob_min_cost.solve()
 
-#ГРАФ 
+# ------------------------------------------------------------------------------
+# Построение графа
+# ------------------------------------------------------------------------------
+
 #использование маршрутов 
 def calculate_route_usage(A1, A2, K, f1_mc, f2_mc):
     route_usage = {}
@@ -610,7 +615,9 @@ flow_network = build_flow_network(nodes, A1 + A2, route_capacities1, route_capac
 draw_flow_network(flow_network, df_nodes, route_usage, node_capacities, node_usage)  # передача df_nodes
 
 
-#ИНТЕРАКТИВНАЯ КАРТА
+# ------------------------------------------------------------------------------
+# Создание интерактивной карты
+# ------------------------------------------------------------------------------
 
 # получение координат по ID и типу точки
 def get_coordinates(row):
@@ -718,7 +725,6 @@ m.get_root().html.add_child(
 m.get_root().header.add_child(folium.Element('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />'))
 
 # дуги
-
 def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
     points = []
     # Define intermediate point
@@ -746,14 +752,6 @@ def create_arc(start_lat, start_lon, end_lat, end_lon, height=0.2):
         points.append((lat + lat_offset, lon + lon_offset))
     return points
 
-# Все маршруты (вне зависимости от даты)
-routes_query_all = """
-    SELECT DISTINCT route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id
-    FROM transport_routes
-"""
-routes_data_all = get_data(routes_query_all)
-df_routes_all = pd.DataFrame(routes_data_all, columns=['route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id'])
-
 # Функция для определения потока на выбранную дату
 def get_flow_for_date(row, current_date):
     start_entry_id = row['start_entry_id']
@@ -767,15 +765,14 @@ def get_flow_for_date(row, current_date):
     end_storage_id_str = "NULL" if pd.isna(end_storage_id) else str(int(end_storage_id))
     end_consumption_id_str = "NULL" if pd.isna(end_consumption_id) else str(int(end_consumption_id))
 
-    query = f"""
-        SELECT cargo_volume
-        FROM transport_routes
-        WHERE route_id = {row['route_id']}
-        AND start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')
-        AND (start_entry_id = {start_entry_id_str} OR start_entry_id IS NULL)
-        AND (start_storage_id = {start_storage_id_str} OR start_storage_id IS NULL)
-        AND (end_storage_id = {end_storage_id_str} OR end_storage_id IS NULL)
-        AND (end_consumption_id = {end_consumption_id_str} OR end_consumption_id IS NULL)
+    query = f"""select cargo_volume
+        from transport_routes
+        where route_id = {row['route_id']}
+        and start_date <= '{current_date}' and (end_date is null or end_date >= '{current_date}')
+        and (start_entry_id = {start_entry_id_str} or start_entry_id is null)
+        and (start_storage_id = {start_storage_id_str} or start_storage_id is null)
+        and (end_storage_id = {end_storage_id_str} or end_storage_id is null)
+        and (end_consumption_id = {end_consumption_id_str} or end_consumption_id is null)
     """
 
     flow_data = get_data(query)
@@ -843,11 +840,13 @@ for index, row in df_routes_all.iterrows():
             smooth_factor=0,
             tooltip=tooltip_text).add_to(m)
 
-# Остальной код (вывод датафреймов, отображение карты)
-st.write("df_entry", df_entry)
-st.write("df_storage", df_storage)
-st.write("df_consumption", df_consumption)
-st.write("df_nodes", df_nodes)
 
 # Отображение карты в Streamlit
 st.components.v1.html(m._repr_html_(), height=1000, width=1500)
+
+show_df = st.checkbox("Показать датафреймы", value=True)
+if show_df:
+    st.write("df_entry", df_entry)
+    st.write("df_storage", df_storage)
+    st.write("df_consumption", df_consumption)
+    st.write("df_nodes", df_nodes)
