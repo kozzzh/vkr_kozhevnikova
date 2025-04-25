@@ -95,6 +95,24 @@ current_date = st.date_input("Выберите дату", value=datetime.today()
 # Получаем данные о маршрутах на выбранную дату
 df_routes = get_transport_routes(current_date)
 
+# Преобразуем столбцы 'start_date' и 'end_date' в тип datetime (если они еще не в таком формате)
+df_routes['start_date'] = pd.to_datetime(df_routes['start_date'])
+df_routes['end_date'] = pd.to_datetime(df_routes['end_date'])
+
+# Преобразуем столбцы 'start_date' и 'end_date' в тип datetime (если они еще не в таком формате)
+df_routes['start_date'] = pd.to_datetime(df_routes['start_date'])
+df_routes['end_date'] = pd.to_datetime(df_routes['end_date'])
+
+# Фильтруем df_routes по дате
+df_routes_filtered = df_routes[
+    (df_routes['start_date'] <= pd.to_datetime(current_date)) &
+    ((df_routes['end_date'].isnull()) | (df_routes['end_date'] >= pd.to_datetime(current_date)))
+]
+
+# Рассчитываем общее количество отправленного груза и общие затраты
+total_cargo_volume = df_routes_filtered['cargo_volume'].sum()
+total_transportation_cost = df_routes_filtered['transportation_cost'].sum()
+
 # Переименовываем столбцы для удобства
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
 df_storage = df_storage.rename(columns={'storage_id': 'node_id', 'storage_name': 'node_name'})
@@ -641,6 +659,11 @@ print('df_entry:', df_entry)
 
 #Streamlit
 st.title("Интерактивная карта ХКГМ")
+
+st.write(f"Дата: {current_date}")
+st.write(f"Общий объем отправленного груза: {total_cargo_volume}")
+st.write(f"Общие затраты на транспортировку: {total_transportation_cost}")
+
 
 #центр карты
 center_latitude = 70.028470
