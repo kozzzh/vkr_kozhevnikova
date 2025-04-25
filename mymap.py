@@ -74,13 +74,9 @@ df_routes_all = pd.DataFrame(routes_data_all, columns=['route_id', 'start_entry_
 #транспортные пути
 # Функция для получения данных о маршрутах с учетом даты
 def get_transport_routes(current_date: date):
-    query = f"""
-        SELECT route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id,
+    query = f"""select route_id, start_entry_id, start_storage_id, end_storage_id, end_consumption_id,
                route_type, cargo_volume, capacity, transportation_cost, allowed_transport_vehicles,
-               start_date, end_date
-        FROM transport_routes
-        WHERE start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')
-    """
+               start_date, end_date from transport_routes where start_date <= '{current_date}' AND (end_date IS NULL OR end_date >= '{current_date}')"""
     transport_data = get_data(query)
     df_routes = pd.DataFrame(transport_data, columns=[
         'route_id', 'start_entry_id', 'start_storage_id', 'end_storage_id', 'end_consumption_id',
@@ -88,6 +84,9 @@ def get_transport_routes(current_date: date):
         'start_date', 'end_date'
     ])
     return df_routes
+
+#Streamlit
+st.title("Интерактивная карта ХКГМ")
 
 # Получаем текущую дату из Streamlit (можно использовать слайдер или выбор даты)
 current_date = st.date_input("Выберите дату", value=datetime.today())
@@ -657,13 +656,9 @@ def get_coordinates(row):
 
 print('df_entry:', df_entry)
 
-#Streamlit
-st.title("Интерактивная карта ХКГМ")
-
-st.write(f"Дата: {current_date}")
-st.write(f"Общий объем отправленного груза: {total_cargo_volume}")
-st.write(f"Общие затраты на транспортировку: {total_transportation_cost}")
-
+st.subtitle(f"Дата: {current_date}")
+st.subtitle(f"Общий объем отправленного груза: {total_cargo_volume}")
+st.subtitle(f"Общие затраты на транспортировку: {total_transportation_cost}")
 
 #центр карты
 center_latitude = 70.028470
