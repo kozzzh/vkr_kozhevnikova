@@ -95,8 +95,6 @@ current_date = st.date_input("Выберите дату", value=datetime.today()
 # Получаем данные о маршрутах на выбранную дату
 df_routes = get_transport_routes(current_date)
 
-st.write(df_routes)
-
 # Переименовываем столбцы для удобства
 df_entry = df_entry.rename(columns={'entry_id': 'node_id', 'entry_name': 'node_name'})
 df_storage = df_storage.rename(columns={'storage_id': 'node_id', 'storage_name': 'node_name'})
@@ -682,6 +680,14 @@ for index, row in df_nodes.iterrows():
 
 colors = {"Точка входа": "rgb(50,205,50)", "Точка хранения": "orange", "Точка потребления": "	rgb(220,20,60)"}
 
+# Показ датафреймов
+show_df = st.checkbox("Показать датафреймы", value=True)
+if show_df:
+    st.write("df_entry", df_entry)
+    st.write("df_storage", df_storage)
+    st.write("df_consumption", df_consumption)
+    st.write("df_nodes", df_nodes)
+
 # HTML для легенды с иконками домиков
 legend_html = """
      <div style="
@@ -843,10 +849,3 @@ for index, row in df_routes_all.iterrows():
 
 # Отображение карты в Streamlit
 st.components.v1.html(m._repr_html_(), height=1000, width=1500)
-
-show_df = st.checkbox("Показать датафреймы", value=True)
-if show_df:
-    st.write("df_entry", df_entry)
-    st.write("df_storage", df_storage)
-    st.write("df_consumption", df_consumption)
-    st.write("df_nodes", df_nodes)
