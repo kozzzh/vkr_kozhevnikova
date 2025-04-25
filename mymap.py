@@ -656,9 +656,9 @@ def get_coordinates(row):
 
 print('df_entry:', df_entry)
 
-st.subtitle(f"Дата: {current_date}")
-st.subtitle(f"Общий объем отправленного груза: {total_cargo_volume}")
-st.subtitle(f"Общие затраты на транспортировку: {total_transportation_cost}")
+st.subheader(f"Дата: {current_date}")
+st.subheader(f"Общий объем отправленного груза: {total_cargo_volume}")
+st.subheader(f"Общие затраты на транспортировку: {total_transportation_cost}")
 
 #центр карты
 center_latitude = 70.028470
